@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, time
 from confluent_kafka import Consumer
 import psycopg2
 
@@ -81,7 +81,8 @@ def create_fact_table(conn):
         dim_bank_id INT,
         dim_vehicle_id INT,
         created_at TIMESTAMP,
-        updated_at TIMESTAMP
+        updated_at TIMESTAMP,
+        last_modified_at TIMESTAMP
     );
     """
     with conn.cursor() as cur:
@@ -103,6 +104,7 @@ def main():
 
     try:
         while True:
+            print('START CONSUMING DATA')
             msg = consumer.poll(1.0)
             if msg is None or msg.error():
                 break
@@ -144,14 +146,15 @@ def main():
                 payload['tgl_transaksi'] = convert_epoch_to_datetime(payload['tgl_transaksi'])
                 payload['created_at'] = convert_epoch_to_datetime(payload['created_at'])
                 payload['updated_at'] = convert_epoch_to_datetime(payload['updated_at'])
+                payload['last_modified_at']= datetime.now()
 
                 with pg_conn.cursor() as cur:
                     cur.execute("""
                     INSERT INTO fact_toll_transactions (
                         transaction_id, tgl_transaksi, periode, tarif, saldo, no_kartu,
                         no_resi, shift, flag_id, dim_cabang_id, dim_gerbang_id, dim_bank_id,
-                        dim_vehicle_id, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        dim_vehicle_id, created_at, updated_at, last_modified_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (transaction_id) DO NOTHING;
                     """, (
                         payload.get("no_resi"),
@@ -168,7 +171,8 @@ def main():
                         dim_bank_id,
                         dim_vehicle_id,
                         payload.get("created_at"),
-                        payload.get("updated_at")
+                        payload.get("updated_at"),
+                        payload.get("last_modified_at")
                     ))
                     pg_conn.commit()
                 print(f"✅ Inserted transaction {payload.get('no_resi')}")
